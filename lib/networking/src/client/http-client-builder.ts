@@ -6,7 +6,6 @@ import { HttpClient } from './http-client';
 
 export interface HttpClientBuilder {
   setEngine(engine: HttpEngine): void;
-  setBaseUrl(url: string): void;
   addInterceptor(interceptor: HttpInterceptor): void;
   register(
     phase: HttpPipelinePhase,

@@ -303,8 +303,11 @@ Contrato de HttpClientBuilder:
 ```typescript
 export interface HttpClientBuilder {
   setEngine(engine: HttpEngine): void;
-  setBaseUrl(url: string): void;
   addInterceptor(interceptor: HttpInterceptor): void;
+  register(
+    phase: HttpPipelinePhase,
+    step: HttpPipelineStep
+  ): void;
   build(): HttpClient;
 }
 ```
@@ -327,11 +330,23 @@ export function withEngine(
 
 ```typescript
 export function withBaseUrl(
-  url: string
+  baseUrl: string
 ): HttpFeature {
   return {
     install(builder) {
-      builder.setBaseUrl(url);
+      if (!baseUrl) {
+        return;
+      }
+
+      const prefix = baseUrl.replace(/\/+$/, '');
+
+      builder.register('prepare', (request, next) => {
+        const url = /^[a-z][a-z\d+.-]*:/i.test(request.url)
+          ? request.url
+          : `${prefix}/${request.url.replace(/^\/+/, '')}`;
+
+        return next({ ...request, url });
+      });
     }
   };
 }
@@ -474,7 +489,6 @@ Ahora nuestro HttpClientBuilder podría evolucionar incorporando un mecanismo de
 ```typescript
 export interface HttpClientBuilder {
   setEngine(engine: HttpEngine): void;
-  setBaseUrl(url: string): void;
   addInterceptor(interceptor: HttpInterceptor): void;
   register(
     phase: HttpPipelinePhase,

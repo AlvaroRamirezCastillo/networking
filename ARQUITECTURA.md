@@ -13,6 +13,10 @@ networking/
 ├── src/
 │   ├── client/
 │   │   ├── http-client.ts
+│   │   ├── http-client-builder.ts
+│   │   ├── default-http-client.ts
+│   │   ├── default-http-client-builder.ts
+│   │   ├── create-http-client.ts
 │   ├── models/
 │   │   ├── http-request.ts
 │   │   ├── http-response.ts
@@ -23,19 +27,20 @@ networking/
 │   │   └── http-response-type.ts
 │   ├── engine/
 │   │   └── http-engine.ts
+│   │   └── angular-http-engine.ts
 │   ├── features/
 │   │   ├── http-feature.ts
 │   │   ├── with-engine.ts
 │   │   ├── with-base-url.ts
-│   │   ├── with-timeout.ts
 │   │   ├── with-interceptors.ts
 │   │   └── with-logging.ts
 │   ├── pipeline/
-│   │   ├── xxxx
+│   │   ├── http-handler.ts
+│   │   ├── http-pipeline-phase.ts
+│   │   ├── http-pipeline-step.ts
+│   │   ├── http-pipeline.ts
 │   ├── interceptors/
-│   │   └── xxxx
-│   ├── errors/
-│   │   └── xxxx
+│   │   └── http-interceptor.ts
 │   └── index.ts
 ```
 
@@ -47,6 +52,8 @@ networking/
 * [Sistema de Features](#Sistema-de-Features)
 * [Pipeline de ejecucion](#Pipeline-de-ejecucion)
 * [Sitema de interceptores](#Sitema-de-interceptores)
+* [Implementacion del HttpClient](#Implementacion-del-HttpClient)
+* [integracion con angular](#integracion-con-angular)
 
 ## Diseño de la API publica
 
@@ -623,5 +630,238 @@ export function withInterceptors(
 }
 ```
 
+## Implementacion del HttpClient
 
+*default-http-client.ts*
+```typescript
+import type { HttpClient } from './http-client';
+import type { HttpOptions } from '../models/http-options';
+import type { HttpRequest } from '../models/http-request';
+import type { HttpResponse } from '../models/http-response';
+import type { HttpHandler } from '../pipeline/http-handler';
+
+export class DefaultHttpClient implements HttpClient {
+  constructor(
+    private readonly handler: HttpHandler
+  ) {}
+
+  async request<T>(
+    request: HttpRequest
+  ): Promise<HttpResponse<T>> {
+    return await this.handler(request) as HttpResponse<T>;
+  }
+
+  async get<T>(
+    url: string,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'GET',
+      url
+    });
+
+    return response.body;
+  }
+
+  async post<T>(
+    url: string,
+    body: unknown,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'POST',
+      url,
+      body
+    });
+
+    return response.body;
+  }
+
+  async put<T>(
+    url: string,
+    body: unknown,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'PUT',
+      url,
+      body
+    });
+
+    return response.body;
+  }
+
+  async patch<T>(
+    url: string,
+    body: unknown,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'PATCH',
+      url,
+      body
+    });
+
+    return response.body;
+  }
+
+  async delete<T>(
+    url: string,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'DELETE',
+      url
+    });
+
+    return response.body;
+  }
+
+  async head<T>(
+    url: string,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'HEAD',
+      url
+    });
+
+    return response.body;
+  }
+
+  async options<T>(
+    url: string,
+    options?: HttpOptions
+  ): Promise<T> {
+    const response = await this.request<T>({
+      ...options,
+      method: 'OPTIONS',
+      url
+    });
+
+    return response.body;
+  }
+}
+```
+
+*default-http-client-builder.ts*
+```typescript
+import type { HttpClient } from './http-client';
+import type { HttpEngine } from '../engine/http-engine';
+import type { HttpInterceptor } from '../interceptors/http-interceptor';
+import type { HttpPipelinePhase } from '../pipeline/http-pipeline-phase';
+import type { HttpPipelineStep } from '../pipeline/http-pipeline-step';
+import type { HttpClientBuilder } from './http-client-builder';
+import { HttpPipeline } from '../pipeline/http-pipeline';
+import { DefaultHttpClient } from './default-http-client';
+
+export class DefaultHttpClientBuilder implements HttpClientBuilder {
+  private engine?: HttpEngine;
+
+  private readonly steps: {
+    phase: HttpPipelinePhase;
+    step: HttpPipelineStep;
+  }[] = [];
+
+  setEngine(engine: HttpEngine): void {
+    this.engine = engine;
+  }
+
+  addInterceptor(interceptor: HttpInterceptor): void {
+    this.register('policy', interceptor);
+  }
+
+  register(
+    phase: HttpPipelinePhase,
+    step: HttpPipelineStep
+  ): void {
+    this.steps.push({ phase, step });
+  }
+
+  build(): HttpClient {
+    const engine = this.engine;
+
+    if (!engine) {
+      throw new Error('HttpEngine is required');
+    }
+
+    const pipeline = new HttpPipeline();
+
+    for (const { phase, step } of this.steps) {
+      pipeline.register(phase, step);
+    }
+
+    const handler = pipeline.build(
+      request => engine.execute(request)
+    );
+
+    return new DefaultHttpClient(handler);
+  }
+}
+```
+
+*create-http-client.ts*
+```typescript
+import { HttpFeature } from '../features/http-feature';
+import { DefaultHttpClientBuilder } from './default-http-client-builder';
+import { HttpClient } from './http-client';
+
+export function createHttpClient(
+  ...features: HttpFeature[]
+): HttpClient {
+
+  const builder = new DefaultHttpClientBuilder();
+
+  for (const feature of features) {
+    feature.install(builder);
+  }
+
+  return builder.build();
+}
+```
+
+## integracion con angular
+
+Podemos crear un token para proporcionar nuestro propio cliente HTTP dentro de Angular.
+
+```typescript
+export const HTTP_CLIENT = new InjectionToken<HttpClient>(
+  'Networking HttpClient'
+);
+```
+
+```typescript
+{
+  provide: HTTP_CLIENT,
+  useFactory: () => {
+    const angularHttp = inject(AngularHttpClient);
+
+    return createHttpClient(
+      withEngine(new AngularHttpEngine(angularHttp)),
+      withBaseUrl('https://api.example.com'),
+      withLogging()
+    );
+  }
+}
+```
+
+Ejemplo de uso
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class UserService {
+
+  private readonly http = inject(HTTP_CLIENT);
+
+  getUsers(): Promise<User[]> {
+    return this.http.get<User[]>('/users');
+  }
+}
+```
 

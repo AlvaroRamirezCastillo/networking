@@ -1,5 +1,9 @@
 {
   "name": "networking-workspace",
   "private": true,
-  "packageManager": "pnpm@11.21.0"
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "start:angular": "pnpm --filter angular-app start",
+    "start:backend": "pnpm --filter backend start"
+  }
 }

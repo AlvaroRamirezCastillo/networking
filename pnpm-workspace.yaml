@@ -2,6 +2,7 @@ packages:
   - apps
   - lib/networking
   - business
+  - backend
 allowBuilds:
   '@parcel/watcher': false
   esbuild: true
